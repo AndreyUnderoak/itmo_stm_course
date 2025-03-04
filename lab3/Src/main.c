@@ -1,12 +1,16 @@
 #define STM32F446xx
 #include "stm32f4xx.h"
 
+#define LED_PIN 5
+
 void SystemClock_Config(void);
 void TIM2_IRQHandler(void); // Обработчик прерывания
 void Timer2_Init(void);
+void GPIO_Config(void);
 
 int main(void) {
     SystemClock_Config();  // Настраиваем тактирование
+    GPIO_Config();  
     Timer2_Init();
     while (1) {
     }
@@ -66,6 +70,18 @@ void Timer2_Init(void) {
 void TIM2_IRQHandler(void) {
     if (TIM2->SR & TIM_SR_UIF) {  // Проверяем флаг обновления
         TIM2->SR &= ~TIM_SR_UIF;  // Сбрасываем флаг
+        GPIOA->ODR ^= (1 << LED_PIN);
         // Ваш код обработки прерывания (например, переключение светодиода)
     }
+}
+
+
+void GPIO_Config(void) {
+    // Включаем тактирование GPIOA
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+    
+    // Настраиваем PA5 (встроенный LED) на выход
+    GPIOA->MODER |= (1 << (LED_PIN * 2));
+    GPIOA->OTYPER &= ~(1 << LED_PIN);
+    GPIOA->OSPEEDR |= (3 << (LED_PIN * 2));
 }
