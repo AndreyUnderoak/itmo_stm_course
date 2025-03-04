@@ -1,86 +1,71 @@
 #define STM32F446xx
 #include "stm32f4xx.h"
 
-#define LED_PIN 5 
-// частота прерывания
-#define TIMER_FREQUENCY_HZ 5000
-
-void SystemClock_INIT(void);
-void Timer_INIT(void);
-void GPIO_INIT(void);
+void SystemClock_Config(void);
+void TIM2_IRQHandler(void); // Обработчик прерывания
+void Timer2_Init(void);
 
 int main(void) {
-    SystemClock_INIT(); 
-    GPIO_INIT();       
-    Timer_INIT();      
-
+    SystemClock_Config();  // Настраиваем тактирование
+    Timer2_Init();
     while (1) {
     }
 }
 
-void SystemClock_INIT(void) {
-    // PLL off
-    RCC->CR &= ~RCC_CR_PLLON;
-    while (RCC->CR & RCC_CR_PLLRDY);
-
-    // PLL (HSE = 8 MHz, SYSCLK = 150 MHz)
-    // f(VCO clock) = f(HSE) / M * N = 8MHz / 4 * 150 = 300 MHz
-    // f(PLL output) = f(VCO clock) / P = 300 MHz / 2 = 150 MHz
-    RCC->PLLCFGR = (4 << RCC_PLLCFGR_PLLM_Pos) |    // M = 4
-                    (150 << RCC_PLLCFGR_PLLN_Pos) | // N = 150
-                    (0 << RCC_PLLCFGR_PLLP_Pos) |   // P = 2
-                    (RCC_PLLCFGR_PLLSRC_HSE);       // HSE
-    
-    // HSE on
+void SystemClock_Config(void) {
+    // Настраиваем Flash (задержки ожидания)
+    FLASH->ACR = FLASH_ACR_PRFTEN | FLASH_ACR_ICEN | FLASH_ACR_DCEN | FLASH_ACR_LATENCY_4WS;
+    // Включаем HSE (внешний генератор 20 МГц)
     RCC->CR |= RCC_CR_HSEON;
-    while (!(RCC->CR & RCC_CR_HSERDY));
-    
-    // PLL on
+    while (!(RCC->CR & RCC_CR_HSERDY)); // Ждем готовности HSE
+
+    // Настраиваем PLL
+    RCC->PLLCFGR = (10 << RCC_PLLCFGR_PLLM_Pos) |  // PLLM = 10
+                   (150 << RCC_PLLCFGR_PLLN_Pos) | // PLLN = 150
+                   (0 << RCC_PLLCFGR_PLLP_Pos) |   // PLLP = 2 (00b)
+                   (1 << RCC_PLLCFGR_PLLSRC_Pos);  // Источник PLL - HSE
+
+    // Включаем PLL
     RCC->CR |= RCC_CR_PLLON;
-    while (!(RCC->CR & RCC_CR_PLLRDY));
-    
-    // AHB 150 MHz
-    RCC->CFGR |= RCC_CFGR_HPRE_DIV1; 
-    // APB1 75 / 2 MHz 
-    RCC->CFGR |= RCC_CFGR_PPRE1_DIV4;
-    // APB2 75 MHz 
-    RCC->CFGR |= RCC_CFGR_PPRE2_DIV2; 
-    
-    // PLL source
+    while (!(RCC->CR & RCC_CR_PLLRDY)); // Ждем готовности PLL
+
+    // Настраиваем делители шин
+    RCC->CFGR |= (0 << RCC_CFGR_HPRE_Pos) |   // AHB Prescaler = 1 (150 МГц)
+                 (5 << RCC_CFGR_PPRE1_Pos) |  // APB1 Prescaler = 4 (37.5 МГц)
+                 (0 << RCC_CFGR_PPRE2_Pos);   // APB2 Prescaler = 1 (150 МГц)
+
+    // Переключаемся на PLL как основной источник тактирования
     RCC->CFGR |= RCC_CFGR_SW_PLL;
-    while ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_PLL);
-}
+    while ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_PLL); // Ждем переключения
 
-void GPIO_INIT(void) {
-    // GPIOA tac
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
     
-    // PA5 out
-    GPIOA->MODER |= (1 << (LED_PIN * 2));
-    GPIOA->OTYPER &= ~(1 << LED_PIN);
-    GPIOA->OSPEEDR |= (3 << (LED_PIN * 2));
 }
 
-void Timer_INIT(void) {
-    // tim2 tac
+
+// Инициализация таймера TIM2
+void Timer2_Init(void) {
+    // Включаем тактирование TIM2
     RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
-    
-    // Предделитель (APB1 = 37.5MHz, 37.5MHz / 37500 = 1kHz)
-    TIM2->PSC = (37500 - 1); 
-    // reload (1kHz / 5 = 5kHz)
-    TIM2->ARR = (5 - 1); 
-    
-    // прерывание по переполнению
-    TIM2->DIER |= TIM_DIER_UIE; 
-    // tim2 on
-    TIM2->CR1 |= TIM_CR1_CEN; 
-    
-    NVIC_EnableIRQ(TIM2_IRQn); 
+
+    // Настраиваем PSC и ARR
+    TIM2->PSC = 14;       // Предделитель (деление на 15)
+    TIM2->ARR = 999;      // Автозагрузка (считаем до 1000)
+
+    // Включаем прерывание по переполнению
+    TIM2->DIER |= TIM_DIER_UIE;
+
+    // Включаем таймер
+    TIM2->CR1 |= TIM_CR1_CEN;
+
+    // Разрешаем прерывание TIM2 в NVIC
+    NVIC_EnableIRQ(TIM2_IRQn);
+    NVIC_SetPriority(TIM2_IRQn, 1);
 }
 
+// Обработчик прерывания TIM2
 void TIM2_IRQHandler(void) {
-    if (TIM2->SR & TIM_SR_UIF) {
-        TIM2->SR &= ~TIM_SR_UIF; 
-        GPIOA->ODR ^= (1 << LED_PIN);
+    if (TIM2->SR & TIM_SR_UIF) {  // Проверяем флаг обновления
+        TIM2->SR &= ~TIM_SR_UIF;  // Сбрасываем флаг
+        // Ваш код обработки прерывания (например, переключение светодиода)
     }
 }
